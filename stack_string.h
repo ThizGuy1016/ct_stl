@@ -121,8 +121,9 @@ const bool StackString_slice(SS_t* restrict _string, const register u16 _start, 
 */
 {
 	if (_end > StackString_len(_string) || _end > StackString_len(_string) || _start < 0 ) return false;
-	strncpy(TmpStringBuf, _string->data+_start, _end);
-	strncpy(_string->data, TmpStringBuf, (_end - _start) + 1);
+	for ( u16 idx = 0; idx <= _end; ++idx)
+		_string->data[idx] = _string->data[idx+_start];
+	_string->data[_end+1] = '\0';
 
 	_string->data[Stack_Size-1] = (_end - _start);
 
