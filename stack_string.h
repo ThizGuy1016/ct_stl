@@ -19,7 +19,6 @@ typedef union SS_t {
 } SS_t;
 
 Optional_t(SS_t);
-Optional_t(u16);
 
 typedef struct StackString {
 	Optional(SS_t) (*owned_from)(const char* restrict);
@@ -120,7 +119,7 @@ const bool StackString_slice(SS_t* restrict _string, const register u16 _start, 
  | Slices the string in the given StackString to the starting and ending indicies
 */
 {
-	if (_end > StackString_len(_string) || _end > StackString_len(_string) || _start < 0 ) return false;
+	if (_end > StackString_len(_string) || _end+_start > StackString_len(_string) || _start < 0 ) return false;
 	for ( u16 idx = 0; idx <= _end; ++idx)
 		_string->data[idx] = _string->data[idx+_start];
 	_string->data[_end+1] = '\0';
@@ -188,9 +187,8 @@ const bool StackString_toupper(SS_t* restrict _string)
 
 	if (!_string) return false;
 	char curr;
-	for ( u16 idx = 0; (curr = _string->data[idx]) != '\0'; ++idx ) {
+	for ( u16 idx = 0; (curr = _string->data[idx]) != '\0'; ++idx )
 		_string->data[idx] = (curr >= 97 && curr <= 122 ) ? curr-32 : curr;
-	}
 	return true;
 }
 
@@ -201,9 +199,8 @@ const bool StackString_tolower(SS_t* restrict _string)
 {
 	if (!_string) return false;
 	char curr;
-	for ( u16 idx = 0; (curr = _string->data[idx]) != '\0'; ++idx ) {
+	for ( u16 idx = 0; (curr = _string->data[idx]) != '\0'; ++idx )
 		_string->data[idx] = (curr >= 65 && curr <= 90 ) ? curr+32 : curr;
-	}
 	return true;
 }
 
@@ -270,7 +267,7 @@ Optional(u16) StackString_find(const SS_t* restrict _haystack, const char* restr
 
 const bool StackString_remove(SS_t* restrict _string, const char* _str)
 /*
- | Removes all instances of a substir
+ | Removes all instances of a substr
  | Credit: chqrlie
  | Source: https://stackoverflow.com/questions/47116974/remove-a-substring-from-a-string-in-c
  | In the future, replace strstr with StackString_find
