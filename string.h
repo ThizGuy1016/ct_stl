@@ -2,8 +2,8 @@
 #define _CT_STL_STRING_H
 
 #include <stdbool.h>
+#include <stdlib.h>
 #include <string.h>
-#include <stdlib.h> 
 
 #include "optional.h"
 #include "types.h"
@@ -11,120 +11,172 @@
 
 #define MEM_ALIGNMENT 32
 
-typedef struct {
-	char*	data;
-	u64 mem_size;
+static char DELIM_BUF[2];
+
+typedef struct String_t {
+	char* data;
+	u64 size;
+	u64 len;
 } String_t;
 
-Optional_t(u64);
+Optional_t(String_t);
 
-typedef struct {
-	String_t  (*owned_from)(const char*);
-	String_t* (*from)(const char*);
-
-	u64		(*size)(const String_t*);
-	u64		(*len)(const String_t*);
-	void	(*realloc)(String_t*, const u64);
-	void	(*clear)(String_t*);
-	char*	(*cstr)(const String_t*);
-	char*	(*owned_cstr)(const String_t*);
-	void	(*append)(String_t*, const char*);
-	void	(*append_str)(String_t*, const String_t*);
-	char*	(*at)(const String_t*, const u64);
-	char*	(*begin)(const String_t*);
-	char*	(*end)(const String_t*);
-	bool	(*remove_idx)(String_t*, const u64, const u64);
-	bool	(*insert)(String_t*, const char*, const u64);
-	bool	(*insert_str)(String_t*, const String_t*, const u64);
-	bool	(*replace)(String_t*, const u64, const char);
+struct String_funcs {
+	// String_t creation
+	Optional(String_t)	(*owned_from)(const char* restrict);
+	String_t*			(*from)(const char* restrict);
+	Optional(String_t)	(*owned_slice_from)(const char* restrict, const register u64, const register u64);
+	String_t*			(*slice_from)(const char* restrict, const register u64, const register u64);
 	
-	Optional(u64) (*find)(const String_t*, const char*, const u64, const u64);
-	void	(*rev)(String_t*);
+	// "member methods"
+	u64			(*size)(const String_t*);
+	u64			(*len)(const String_t*);
+	char*		(*cstr)(const String_t*);
+	char*		(*owned_cstr)(const String_t*);
 
-	void	 (*free)(String_t* _string);	
-} String_funcs;
+	// string manipulation functions
+	const bool	(*append)(String_t*, const char*);
+	const bool	(*append_str)(String_t*, const String_t*);
+	char*		(*at)(const String_t*, const register u64);
+	char*		(*begin)(const String_t*);
+	char*		(*end)(const String_t*);
+	const bool	(*slice)(String_t*, const register u64, const register u64);
+	const bool	(*remove)(String_t*, const char*); 
+	const bool	(*remove_slice)(String_t*, const register u64, const register u64);
+	const bool	(*strip)(String_t*, const char*);
+	const bool	(*insert)(String_t*, const char*, const register u64);
+	const bool	(*insert_str)(String_t*, const String_t*, const register u64);
+	const bool	(*replace)(String_t*, const char, const register u64);
+	const bool	(*rev)(String_t*);
+	const bool	(*toupper)(String_t*);
+	const bool	(*tolower)(String_t*);
 
-u64 mem_round(u64 n, u64 alignment)
+	// search / algo methods
+	Optional(u64) (*find)(const String_t*);
+
+	// memory methods
+	const bool	(*resize)(String_t* restrict, const register u64);
+	const bool	(*shrink)(String_t* restrict);
+	const bool	(*clear)(String_t* restrict);
+	const bool	(*free)(String_t* restrict);
+};
+
+static const u64 mem_round(const u64 n, const u64 alignment)
 {
 	double num = (n / alignment);
-	u64 x = (u64)(num < 0 ? (num - 0.5) : (num + 0.5)) * alignment;
-	return (x > 0) ? x : alignment;
+	const u64 x = (u64)(num < 0 ? (num-0.5) : (num+0.5)) * alignment;
+	return (x > 0) ? x + alignment : alignment;
 }
 
-String_t String_owned_from(const char* _str) 
-{
-	String_t string;
-	
-	u64 _str_len = strlen(_str) + 1;
-	u64 _mem_size = mem_round(_str_len, MEM_ALIGNMENT);
-	
-	string.data = (char*)malloc(_mem_size);
 
+const bool String_resize(String_t* restrict _string, const register u64 _size)
+{
+	if (!_string) return false;
+	_string->size = mem_round(_string->size, MEM_ALIGNMENT);
+	_string->data = (char*)realloc(_string->data, _string->size);
+	if (!_string->data) return false;
+
+	return true;
+}
+
+const bool String_shrink(String_t* restrict _string)
+{
+	if (!_string) return false;
+	_string->size = _string->len;
+	_string->data = (char*)realloc(_string->data, _string->len);
+	if (!_string->data) return false;
+	return true;
+}
+
+const bool String_clear(String_t* restrict _string)
+{
+	if (!_string) return false;
+	_string->data[-1] = '\0';
+	_string->len = -1;
+	return true;
+}
+
+const bool String_free(String_t* restrict _string)
+{
+	if (!_string) return false;
+	free(_string->data);
+	_string->data = NULL;
+	free(_string);
+	_string = NULL;
+	return true;
+}
+
+Optional(String_t) String_owned_from(const char* restrict _str)
+{
+	if (!_str) return None(String_t);
+
+	const u64 _str_len = strlen(_str);
+	String_t string;
+	string.len = _str_len;
+	string.size = mem_round(_str_len, MEM_ALIGNMENT);
+
+	string.data = (char*)malloc(string.size);
 	strncpy(string.data, _str, _str_len);
 
-	string.mem_size = _mem_size;
-	string.data[_str_len] = '\0';
-	string.data[string.mem_size] = (string.mem_size - _str_len);
+	return Some(String_t, string);
+}
 
+String_t* String_from(const char* restrict _str)
+{
+	if (!_str) return NULL; 
+	const u64 _str_len = strlen(_str);
+
+	String_t* string = (String_t*)malloc(sizeof(String_t));
+
+	string->len = _str_len;
+	string->size = mem_round(_str_len, MEM_ALIGNMENT);
+	
+	string->data = (char*)malloc(string->size);
+	strncpy(string->data, _str, _str_len);
+	
 	return string;
 }
 
-String_t* String_from(const char* _str)
+Optional(String_t) String_owned_slice_from(const char* restrict _str, const register u64 _start, const register u64 _end)
 {
-	/*
-	 | Code duplication due to String_from_owned being an lvalue
-	*/
-	String_t* string;
+	const u64 _str_len = strlen(_str);
+	
+	if (!_str || _end > _start || _start < 0 || _end > _str_len) return None(String_t);
+	
+	String_t string;
+	string.len = _str_len;
+	string.size = mem_round(_end-_start, MEM_ALIGNMENT);
 
-	u64 _str_len = strlen(_str) + 1;
-	u64 _mem_size = mem_round(_str_len, MEM_ALIGNMENT);
+	string.data = (char*)malloc(string.size);
+	strncpy(string.data+_start, _str, _end+1);
 
-	string->data = (char*)malloc(_mem_size);
+	return Some(String_t, string);
+}
 
-	strncpy(string->data, _str, _str_len);
+String_t* String_slice_from(const char* restrict _str, const register u64 _start, const register u64 _end)
+{
+	const u64 _str_len = strlen(_str);
+	
+	if (!_str || _end > _start || _start < 0 || _end > _str_len) return NULL;
+	
+	String_t* string = (String_t*)malloc(sizeof(String_t));
+	string->len = _str_len;
+	string->size = mem_round(_end-_start, MEM_ALIGNMENT);
 
-	string->mem_size = _mem_size;
-	string->data[_str_len] = '\0';
-	string->data[string->mem_size] = (string->mem_size - _str_len);
+	string->data = (char*)malloc(string->size);
+	strncpy(string->data+_start, _str, _end+1);
 
 	return string;
 }
 
 u64 String_size(const String_t* _string)
 {
-	/*
-	 | Returns length of the string including null terminator
-	*/
-	return (_string->mem_size - _string->data[_string->mem_size]);
+	return _string->size;
 }
 
 u64 String_len(const String_t* _string)
 {
-	/*
-	 | Returns length of the string excluding null terminator
-	*/
-	return String_size(_string) - 1;
-}
-
-void String_realloc(String_t* _string, const u64 _offset)
-{
-	// in case the remaining size is 0
-	u64 prev_len = String_size(_string);
-	_string->data[_string->mem_size] = '0';
-
-	_string->mem_size += mem_round(_offset, MEM_ALIGNMENT);
-
-	_string->data = (char*)realloc(_string->data, _string->mem_size);
-	_string->data[_string->mem_size] = _string->mem_size - strlen(_string->data); 
-	printf("%u\n", _string->data[_string->mem_size]);
-	
-	return;
-}
-
-void String_clear(String_t* _string) 
-{
-	_string->data[0] = '\0';
-	_string->data[_string->mem_size] = _string->mem_size;
+	return _string->len;
 }
 
 char* String_cstr(const String_t* _string)
@@ -134,194 +186,176 @@ char* String_cstr(const String_t* _string)
 
 char* String_owned_cstr(const String_t* _string)
 {
-	char* cstr = (char*)malloc(_string->mem_size);
-	memcpy(cstr, _string->data, String_len(_string));
-
-	return cstr;
-}
-
-bool String_slice(String_t* _string, const u64 _start, const u64 _end)
-{
-	if (_start < 0 || _end > String_len(_string) || _start > _end ) return false;
-	
-	if (!strncpy(&_string->data[0], &_string->data[_start] + 1, (String_size(_string)))) return false;
-	_string->data[_end - _start] = '\0';
-
-	_string->data[_string->mem_size] = _string->mem_size - (_end - _start); 
-
-	return true;
-}
-
-char* String_owned_slice(String_t* _string, const u64 _start, const u64 _end)
-{
-	if (_start < 0 || _end > String_len(_string) || _start > _end ) return NULL;
-	
-	char* buf = (char*)malloc((_end - _start));
-	if (!strncpy(buf, &_string->data[_start], (_end - _start))) return NULL;
+	char* buf = (char*)malloc(_string->len);
+	strncpy(buf, _string->data, _string->len);
 	return buf;
 }
 
-void String_append(String_t* _string, const char* _str)
+const bool String_append(String_t* _string, const char* _str)
 {
-	u64 new_str_len = strlen(_str);
-	u32 prev_remaining = _string->data[_string->mem_size];
-	if (_string->data[_string->mem_size] > new_str_len) {
-		strncat(_string->data, _str, new_str_len);
-		_string->data[_string->mem_size] -= new_str_len;
-		return;
-	}
+	if (!_string || _str) return false;
+	const u64 _str_len = strlen(_str);
+	if (_str_len+_string->len > _string->size)
+		String_resize(_string, _str_len);
+	
+	_string->len += _str_len;
+	strncat(_string->data, _str, _str_len);
 
-	String_realloc(_string,  new_str_len);
-	strncat(_string->data, _str, new_str_len);
-
-	return;
-}
-
-void String_append_str(String_t* _string, const String_t* _str)
-{
-	String_append(_string, String_cstr(_str));
-}
-
-char* String_at(const String_t* _string, const u64 _idx)
-{
-	return (_idx <= String_size(_string)) ? &_string->data[_idx] : NULL;
-}
-
-char* String_begin(const String_t* _string)
-{
-	return &_string->data[0];
-}
-
-char* String_end(const String_t* _string)
-{
-	return &_string->data[String_len(_string)];
-}
-
-bool String_remove_idx(String_t* _string, const u64 _idx, const u64 _len)
-{
-	if ((_idx + _len) >= String_size(_string)) return false;
-	else if (!strncpy(&_string->data[_idx], &_string->data[_len] + 1, (String_size(_string) - _idx))) return false;
-
-	_string->data[_string->mem_size] += (_len - _idx); 
 	return true;
 }
 
-bool String_remove(String_t* _string, const char* _str)
+const bool String_append_str(String_t* _string, const String_t* _str)
 {
-	u64 _str_len = strlen(_str);
+	return String_append(_string, _str->data);
+}
+
+char* String_at(const String_t* _string, const register u64 _idx)
+{
+	return (_idx > _string->len || !_string) ? &_string->data[_idx] : NULL;
+}
+
+
+char* String_begin(const String_t* _string) 
+{
+	return (!_string) ? &_string->data[0] : NULL;
+}
+
+char* String_end(const String_t* _string) 
+{
+	return (!_string) ? &_string->data[_string->len] : NULL;
+}
+
+const bool String_slice(String_t* _string, const register u64 _start, const register u64 _end)
+{
+	if (_end > _string->len || _end+_start > _string->len || _start < 0 || !_string) return false;
+	for (u16 idx = 0; idx <= _end; ++idx)
+		_string->data[idx] = _string->data[idx+_start];
+	_string->data[_end+1] = '\0';
+
+	_string->len = (_end - _start);
+
+	return true;
+}
+
+const bool String_remove(String_t* _string, const char* _str) 
+/*
+ | Removes all instances of a substr
+ | Credit: chqrlie
+ | Source: https://stackoverflow.com/questions/47116974/remove-a-substring-from-a-string-in-c
+*/
+{
+	if (!_string || !_str) return false;
+	const u64 _str_len = strlen(_str);
 	bool match = false;
-	if (_str_len <= 0) return false;
-	char* curr = _string->data;
-	while ( (curr = strstr(curr, _str)) != NULL ) {
-		memmove(curr, (curr + _str_len), (strlen(curr + _str_len) + 1));
+	
+	char *p, *q, *r;
+	if (*_str && (q = r = strstr(_string->data, _str))) {
+		while ( (r = strstr(p = r + _str_len, _str)) != NULL ) {
+			while ( p < r ) *q++ = *p++;
+		}
 		match = true;
+		while ( (*q++ = *p++) != '\0')
+			continue;
 	}
+	_string->len -= _str_len;
+
 	return match;
 }
 
-bool String_insert(String_t* _string, const char* _str, const u64 _idx)
+const bool String_remove_slice(String_t* _string, const register u64 _start, const register u64 _end)
 {
-	if (_idx > String_len(_string)) return false;
+	TODO;
+	return false;
+}
 
-	u64 _str_len = strlen(_str);
-
-	if (_str_len + String_len(_string) > _string->mem_size )
-		String_realloc(_string, _str_len);
-
-
-	char* end_buf = (char*)malloc(strlen(&_string->data[_idx]));
-	/*
-	 |	Save everything after insertion index into a end_buf; 
-	*/
-	strncpy(end_buf, &_string->data[_idx], (String_len(_string) - _idx));
-	/*
-	 | Concat the given string after string->data at insertion index;
-	*/
-	memcpy(&_string->data[_idx], _str, _str_len);
-	_string->data[_idx + _str_len] = '\0';
-	/*
-	 | Concat the ending of string after the string insertion
-	*/
-	strncat(_string->data, end_buf, strlen(end_buf));
-
-	_string->data[_string->mem_size] = (_string->mem_size - strlen(_string->data)); 
-
-	free(end_buf);
+const bool String_strip(String_t* _string, const char* _delims)
+{
+	if (!_string || !_delims) return false;
+	DELIM_BUF[1] = '\0';
+	for ( ; *_delims != '\0'; _delims++ ) {
+		DELIM_BUF[0] = *_delims;
+		if (!String_remove(_string, DELIM_BUF)) return false;
+	}
 	
+	_string->len = strlen(_string->data);
+
 	return true;
 }
 
-bool String_insert_str(String_t* _string, const String_t* _str, const u64 _idx)
+const bool String_insert(String_t* _string, const char* _str, const register u64 _idx)
 {
-	if (!String_insert(_string, String_cstr(_str), _idx)) return false;
+	if (_idx > _string->len || !_string || !_str) return false;
+	const u64 _str_len = strlen(_str);
+	const u64 _new_len = _string->len + _str_len;
+	
+	if ((_string->len + _str_len) > _string->size) String_resize(_string, _str_len);
+	char* tmp = (char*)malloc(_string->len-_str_len);
+	
+	strncpy(tmp, _string->data+_idx, (_string->len-_idx));
+	strncpy(_string->data+_idx, _str, _str_len);
+	strncpy(_string->data+(_idx+_str_len), tmp, _new_len);
+
+	_string->len = _new_len;
+	
+	free(tmp);
 	return true;
 }
 
-bool String_replace(String_t* _string, const u64 _idx, const char c)
+const bool String_insert_str(String_t* _string, const String_t* _str, const register u64 _idx)
 {
-	if (_idx > String_len(_string)) return false;
-	_string->data[_idx] = c;
+	TODO;
+	return false;
+}
+
+const bool String_replace(String_t* _string, const char _c, const register u64 _idx)
+{
+	if (!_string || _idx > _string->len) return false;
+	_string->data[_idx] = _c;
 	return true;
 }
 
-Optional(u64) String_find(const String_t* _string, const char* _str, const u64 _start, const u64 _end)
+const bool String_rev(String_t* _string)
+{
+	TODO;
+	return false;
+}
+
+const bool String_toupper(String_t* _string)
+{
+	if (!_string) return false;
+	char curr;
+	for ( u64 idx = 0; (curr = _string->data[idx]) != '\0'; ++idx )
+		_string->data[idx] = ( curr >= 97 && curr <= 122 ) ? curr-32 : curr;
+	return true;
+}
+
+const bool String_tolower(String_t* _string)
+{
+	char curr;
+	for ( u64 idx = 0; (curr = _string->data[idx]) != '\0'; ++idx )
+		_string->data[idx] = ( curr >= 65 && curr <= 90 ) ? curr+32 : curr;
+	return true;
+}
+
+Optional(u64) String_find(const String_t* _string)
 {
 	TODO;
 	return None(u64);
 }
 
-u64 String_count(const String_t* _string, const char* _str)
+void String_dump(const String_t* _string)
 {
-	TODO;
-	return 0;
-}
-
-bool String_strip(String_t* _string, const char* _str)
-{
-
-	return true;
-}
-
-void String_rev(String_t* _string)
-{
-	TODO;
+	printf("String: %s\nLength: %zu\nMem-Size: %zu\n", _string->data, _string->len, _string->size);
 	return;
 }
 
-void String_dump(String_t* _string)
-{
-	printf("String: %s\nLength: %zu\nMemory: %zu bytes\nFree: %u bytes\n",
-			String_cstr(_string), 
-			String_size(_string), 
-			_string->mem_size,
-			_string->data[_string->mem_size]);
-}
-
-void String_shrink_to_fit(String_t* _string)
-{
-	char* new_data = String_owned_cstr(_string);
-	
-	_string->mem_size = String_size(_string);
-	free(_string->data);
-	_string->data = new_data;
-
-	return;
-}
-
-void String_free(String_t* _string)
-{
-	free(_string->data);
-	_string->data = NULL;
-	_string = NULL;
-}
-
-String_funcs String = {
+const static struct String_funcs String = {
 	String_owned_from,
 	String_from,
+	String_owned_slice_from,
+	String_slice_from,
 	String_size,
 	String_len,
-	String_realloc,
-	String_clear,
 	String_cstr,
 	String_owned_cstr,
 	String_append,
@@ -329,12 +363,20 @@ String_funcs String = {
 	String_at,
 	String_begin,
 	String_end,
-	String_remove_idx,
+	String_slice,
+	String_remove,
+	String_remove_slice,
+	String_strip,
 	String_insert,
 	String_insert_str,
 	String_replace,
-	String_find,
 	String_rev,
+	String_toupper,
+	String_tolower,
+	String_find,
+	String_resize,
+	String_shrink,
+	String_clear,
 	String_free,
 };
 
