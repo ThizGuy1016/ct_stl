@@ -3,6 +3,9 @@
 
 #include "types.h"
 
+#define SET_UNSIGNED_BIT(val, pos) (val|(1U<<pos))  
+#define CHECK_UNSIGNED_BIT(val, pos) (val & (1U<<pos))
+
 /*
  | Shoutout to this absolute unit who collected all of these bit twiddling hacks
  | By Sean Eron Anderson

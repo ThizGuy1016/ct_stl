@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "bit_manip.h"
 #include "optional.h"
 #include "types.h"
 #include "todo.h"
@@ -52,13 +53,14 @@ struct String_funcs {
 	const bool	(*tolower)(String_t*);
 
 	// search / algo methods
-	Optional(u64) (*find)(const String_t*);
+	Optional(u64) (*find)(const String_t*, const char*);
 
 	// memory methods
 	const bool	(*resize)(String_t* restrict, const register u64);
 	const bool	(*shrink)(String_t* restrict);
 	const bool	(*clear)(String_t* restrict);
 	const bool	(*free)(String_t* restrict);
+	const bool	(*free_owned)(String_t* restrict);
 };
 
 static const u64 mem_round(const u64 n, const u64 alignment)
@@ -102,6 +104,15 @@ const bool String_free(String_t* restrict _string)
 	free(_string->data);
 	_string->data = NULL;
 	free(_string);
+	_string = NULL;
+	return true;
+}
+
+const bool String_free_owned(String_t* restrict _string)
+{
+	if (!_string) return false;
+	free(_string->data);
+	_string->data = NULL;
 	_string = NULL;
 	return true;
 }
@@ -214,7 +225,6 @@ char* String_at(const String_t* _string, const register u64 _idx)
 	return (_idx > _string->len || !_string) ? &_string->data[_idx] : NULL;
 }
 
-
 char* String_begin(const String_t* _string) 
 {
 	return (!_string) ? &_string->data[0] : NULL;
@@ -264,7 +274,10 @@ const bool String_remove(String_t* _string, const char* _str)
 
 const bool String_remove_slice(String_t* _string, const register u64 _start, const register u64 _end)
 {
-	TODO;
+	if ((_start + _end) >= _string->len || _start < 0 || _end >= _string->len || !_string) return false;
+	if (!strncpy(&_string->data[_start], &_string->data[_end] + 1, _string->len)) return false;
+
+	_string->len -= (_end - _start);
 	return false;
 }
 
@@ -289,7 +302,7 @@ const bool String_insert(String_t* _string, const char* _str, const register u64
 	const u64 _new_len = _string->len + _str_len;
 	
 	if ((_string->len + _str_len) > _string->size) String_resize(_string, _str_len);
-	char* tmp = (char*)malloc(_string->len-_str_len);
+	char* tmp = (char*)malloc(_string->len);
 	
 	strncpy(tmp, _string->data+_idx, (_string->len-_idx));
 	strncpy(_string->data+_idx, _str, _str_len);
@@ -303,8 +316,7 @@ const bool String_insert(String_t* _string, const char* _str, const register u64
 
 const bool String_insert_str(String_t* _string, const String_t* _str, const register u64 _idx)
 {
-	TODO;
-	return false;
+	return String_insert(_string, _str->data, _idx);
 }
 
 const bool String_replace(String_t* _string, const char _c, const register u64 _idx)
@@ -316,8 +328,14 @@ const bool String_replace(String_t* _string, const char _c, const register u64 _
 
 const bool String_rev(String_t* _string)
 {
-	TODO;
-	return false;
+	char* buf = (char*)malloc(_string->len);
+	for ( u64 idx = 0; idx < _string->len; ++idx )
+		buf[idx] = _string->data[_string->len-idx-1];
+	
+	strncpy(_string->data, buf, _string->len);
+
+	free(buf);
+	return true;
 }
 
 const bool String_toupper(String_t* _string)
@@ -337,10 +355,13 @@ const bool String_tolower(String_t* _string)
 	return true;
 }
 
-Optional(u64) String_find(const String_t* _string)
+Optional(u64) String_find(const String_t* _string, const char* _str)
 {
-	TODO;
-	return None(u64);
+	if (!_string || !_str) return None(u64);
+	char* curr = strstr(_string->data, _str);
+	if (!curr) return None(u64);
+
+	return Some(u64, (_string->len - strlen(curr)));
 }
 
 void String_dump(const String_t* _string)
@@ -378,6 +399,7 @@ const static struct String_funcs String = {
 	String_shrink,
 	String_clear,
 	String_free,
+	String_free_owned,
 };
 
 #endif // End _CT_STL_STRING_H

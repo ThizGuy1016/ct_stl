@@ -166,9 +166,6 @@ const bool StackString_insert(SS_t* restrict _string, const char* restrict _str,
 	const register u16 new_len = StackString_len(_string) + _str_len;
 	if (StackString_len(_string + _str_len) > Stack_Size) return false;	
 	
-	/*
-	 | strncpy should only fail if glibc allocater fails. so this code is "safe"
-	*/
 	strncpy(TmpStringBuf, _string->data+_idx, (StackString_len(_string) - _idx));
 	strncpy(_string->data+_idx, _str, _str_len);
 	strncpy(_string->data+(_idx+_str_len), TmpStringBuf, new_len);
