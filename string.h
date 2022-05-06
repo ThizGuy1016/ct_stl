@@ -7,6 +7,7 @@
 
 #include "bit_manip.h"
 #include "optional.h"
+#include "alloc.h"
 #include "types.h"
 #include "todo.h"
 
@@ -26,6 +27,7 @@ struct String_funcs {
 	// String_t creation
 	Optional(String_t)	(*owned_from)(const char* restrict);
 	String_t*			(*from)(const char* restrict);
+	String_t*			(*from_file)(FILE* restrict);
 	Optional(String_t)	(*owned_slice_from)(const char* restrict, const register u64, const register u64);
 	String_t*			(*slice_from)(const char* restrict, const register u64, const register u64);
 	
@@ -38,6 +40,7 @@ struct String_funcs {
 	// string manipulation functions
 	const bool	(*append)(String_t*, const char*);
 	const bool	(*append_str)(String_t*, const String_t*);
+	const bool	(*append_file)(String_t*, FILE* restrict);
 	char*		(*at)(const String_t*, const register u64);
 	char*		(*begin)(const String_t*);
 	char*		(*end)(const String_t*);
@@ -63,18 +66,10 @@ struct String_funcs {
 	const bool	(*free_owned)(String_t* restrict);
 };
 
-static const u64 mem_round(const u64 n, const u64 alignment)
-{
-	double num = (n / alignment);
-	const u64 x = (u64)(num < 0 ? (num-0.5) : (num+0.5)) * alignment;
-	return (x > 0) ? x + alignment : alignment;
-}
-
-
 const bool String_resize(String_t* restrict _string, const register u64 _size)
 {
 	if (!_string) return false;
-	_string->size = mem_round(_string->size, MEM_ALIGNMENT);
+	_string->size = mem_round(_string->size+_size, MEM_ALIGNMENT);
 	_string->data = (char*)realloc(_string->data, _string->size);
 	if (!_string->data) return false;
 
@@ -93,8 +88,8 @@ const bool String_shrink(String_t* restrict _string)
 const bool String_clear(String_t* restrict _string)
 {
 	if (!_string) return false;
-	_string->data[-1] = '\0';
-	_string->len = -1;
+	_string->data[0] = '\0';
+	_string->len = 1;
 	return true;
 }
 
@@ -145,6 +140,24 @@ String_t* String_from(const char* restrict _str)
 	string->data = (char*)malloc(string->size);
 	strncpy(string->data, _str, _str_len);
 	
+	return string;
+}
+
+String_t* String_from_file(FILE* restrict _f_ptr)
+{
+	if (!_f_ptr) return NULL;
+	
+	fseek(_f_ptr, 0L, SEEK_END);
+	const u64 _f_size = ftell(_f_ptr);
+	rewind(_f_ptr);
+
+	String_t* string = (String_t*)malloc(sizeof(String_t));
+	if (!String_resize(string, _f_size)) return NULL;
+	string->len = _f_size;
+
+	fread(string->data, string->len, 1, _f_ptr);
+	fclose(_f_ptr);
+
 	return string;
 }
 
@@ -218,6 +231,25 @@ const bool String_append(String_t* _string, const char* _str)
 const bool String_append_str(String_t* _string, const String_t* _str)
 {
 	return String_append(_string, _str->data);
+}
+
+const bool String_append_file(String_t* _string, FILE* restrict _f_ptr)
+{
+	if (!_f_ptr || !_string) return false;
+	
+	fseek(_f_ptr, 0L, SEEK_END);
+	const u64 _f_size = ftell(_f_ptr);
+	rewind(_f_ptr);
+
+	if ((_string->len + _f_size) >= _string->size) 
+		if (!String_resize(_string, _f_size))
+			return false;
+	_string->len += _f_size;
+
+	fread(_string->data, _string->len, 1, _f_ptr);
+	fclose(_f_ptr);
+
+	return true;
 }
 
 char* String_at(const String_t* _string, const register u64 _idx)
@@ -373,6 +405,7 @@ void String_dump(const String_t* _string)
 const static struct String_funcs String = {
 	String_owned_from,
 	String_from,
+	String_from_file,
 	String_owned_slice_from,
 	String_slice_from,
 	String_size,
@@ -381,6 +414,7 @@ const static struct String_funcs String = {
 	String_owned_cstr,
 	String_append,
 	String_append_str,
+	String_append_file,
 	String_at,
 	String_begin,
 	String_end,
