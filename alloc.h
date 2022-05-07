@@ -4,6 +4,13 @@
 #include "stdlib.h"
 #include "types.h"
 
+static const u64 mem_round(const u64 n, const u64 alignment)
+{
+	double num = (n / alignment);
+	const u64 x = (u64)(num < 0 ? (num-0.5) : (num+0.5)) * alignment;
+	return (x > 0) ? x + alignment : alignment;
+}
+
 typedef struct {
 	void* mem;
 	const u64 size;
